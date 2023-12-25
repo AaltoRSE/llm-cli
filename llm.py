@@ -1,4 +1,5 @@
 import argparse
+from collections import deque
 import json
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ params = dict(
     )
 
 history = None
+input_queue = None
 
 # First parsing
 
@@ -66,11 +68,20 @@ parser.add_argument('--temperature', '-T', type=float, default=params['temperatu
                     help="Model temperature")
 parser.add_argument('--max-tokens', default=params['max_tokens'], type=int,
                     help="Max input tokens to the model (save some for the output).  The config file name of this is max_tokens.")
+parser.add_argument('--replay-history', action='store_true',
+                    help='Replay each user prompt back through the model to update assistant prompts')
 parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
                     help="Standard config options")
 parser.add_argument('query', nargs='?')
 args = parser.parse_args()
 params.update(vars(args))
+# Replay all inputs of the history back to the model.
+if args.replay_history:
+    input_queue = deque()
+    for message in history:
+        if message['role'] == 'user':
+            input_queue.append(message['content'])
+    history = None
 
 
 # Utility functions
@@ -81,6 +92,7 @@ class Auth(requests.auth.AuthBase):
         return r
 
 def Message(role, content):
+    assert role in {'system', 'user', 'assistant'}
     return {'role': role, 'content': content}
 
 def count_tokens(text):
@@ -139,6 +151,9 @@ while True:
     print()
     if args.query:
         data = args.query
+    elif input_queue:
+        data = input_queue.popleft()
+        print(f'>> {data}')
     else:
         try:
             data = input('> ')
