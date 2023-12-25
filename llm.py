@@ -22,29 +22,40 @@ params = dict(
 
 history = None
 
+# First parsing
 
+# First we parse only the options that would load other configuration options,
+# and update default parameters (e.g. --config).  Then we will re-parse all
+# arguments like --model which can override the loaded arguments.
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('--config', '-c', default='~/.local/llm.yaml')
 parser.add_argument('--thread', '-t')
 args, remaining = parser.parse_known_args()
+
+# Config file if given
 if args.config:
-    params.update(yaml.safe_load(open(args.config)))
+    args.config = os.path.expanduser(args.config)
+    if os.path.exists(args.config):
+        params.update(yaml.safe_load(open(args.config)))
+
 # Load saved thread if given
+# thread_history is original file for updating (to
+# not change these parameters if they aren't specified again)
 thread_history = { }
-if args.thread and os.path.exists(args.thread):
-    thread_history = yaml.safe_load(open(args.thread))
-    history = thread_history['history']
-    keys = ['system', 'model', 'temperature', 'max_tokens',
-            'url', 'api_key', 'stream']
-    for key in keys:
-        if key in thread_history:
-            params[key] = thread_history[key]
-    #if not args.temperature and 'temperature' in data:
-    #    params['temperature'] =  data['temperature']
-    #if not args.system and 'system' in data:
-    #    params.system = data['system']
+if args.thread:
+    args.thread = os.path.expanduser(args.thread)
+    if os.path.exists(args.thread):
+        thread_history = yaml.safe_load(open(args.thread))
+        history = thread_history['history']
+        keys = ['system', 'model', 'temperature', 'max_tokens',
+                'url', 'api_key', 'stream']
+        for key in keys:
+            if key in thread_history:
+                params[key] = thread_history[key]
 
 
+# Second round parsing.  This re-parses --config and --thread from above but
+# doesn't use them anymore.
 parser = argparse.ArgumentParser()
 parser.add_argument('--list-models', '-l', action='store_true')
 parser.add_argument('--thread', '-t', help="Read/save history&parameters from/to this file (yaml format)")
@@ -59,12 +70,12 @@ parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
                     help="Standard config options")
 parser.add_argument('query', nargs='?')
 args = parser.parse_args()
-#if args.config:
-#    params.update(yaml.safe_load(open(args.config)))
 params.update(vars(args))
 
 
+# Utility functions
 class Auth(requests.auth.AuthBase):
+    """Requests authentication wrapper"""
     def __call__(self, r):
         r.headers['Authorization'] = f'Bearer {params["api_key"]}'
         return r
@@ -73,9 +84,15 @@ def Message(role, content):
     return {'role': role, 'content': content}
 
 def count_tokens(text):
+    """Number of tokens in some text"""
     return len(text) // 5
 
 def limit_tokens(max_, messages):
+    """History list -> limited history list with max_tokens.
+
+    - Doesn't yet accurately count tokens.
+    - Assumes that the first message is the system role.
+    """
     system = messages[0]
     new = [ ]
     count = count_tokens(system['content'])
@@ -85,6 +102,20 @@ def limit_tokens(max_, messages):
             break
         new.append(msg)
     return [system] + list(reversed(new))
+
+def save(fname):
+    """Save history+parameters to fname
+    """
+    thread_history.update(dict(
+        system=params['system'],
+        model=params['model'],
+        temperature=params['temperature'],
+        max_tokens=params['max_tokens'],
+        history=history,
+        ))
+    open(fname+'.new', 'w').write(yaml.dump(thread_history))
+    os.rename(fname+'.new', args.thread)
+
 
 
 sess = requests.Session()
@@ -111,14 +142,26 @@ while True:
     else:
         try:
             data = input('> ')
+            print(repr(data))
         except EOFError:
             break
+    # No input, do nothing
+    if not data.strip():
+        continue
+    # Print history for user
     if data == r'\history':
         print(yaml.dump(history))
+        continue
+    # Force a save right now.
+    if data.startswith(r'\save'):
+        args.thread = data.split(None, 1)[1].strip()
+        save(args.thread)
+        print(f'Saving history (now and future) to {args.thread}')
         continue
 
     history.append(Message('user', data))
 
+    # Construct our API query.
     msg = {
         'model': params['model'],
         'temperature': params['temperature'],
@@ -130,17 +173,19 @@ while True:
             ] + history)
         }
 
+    # Post it and basic check.
     r = sess.post(urljoin(params['url'], 'chat/completions'), json=msg, stream=True)
     if r.status_code != 200:
         print(r.status_code, r.reason)
         print(r.json())
         continue
 
+    # Non-streamed responses
     if not params['stream']:
         rdata = r.json()
         #print(rdata)
         rchoice = rdata['choices'][0]
-        print(f"[{r.status_code}:  {rdata['usage']['prompt_tokens']}→ {rdata['usage']['completion_tokens']}→ {rchoice['finish_reason']}]")
+        print(f"[{r.status_code}: {rdata['usage']['prompt_tokens']}→ {rdata['usage']['completion_tokens']}→ {rchoice['finish_reason']}]")
         message = rchoice['message']['content']
         print(message)
         print()
@@ -155,6 +200,7 @@ while True:
                 if not line: continue
                 handled = False
                 #print(line)
+                # Handle metadata
                 if line.endswith(b'[DONE]'):
                     break
                 if line.startswith(b': ping -'):
@@ -183,16 +229,11 @@ while True:
         message = ''.join(message)
 
     history.append(Message('assistant', message))
-    if args.thread:
-        thread_history.update(dict(
-            system=params['system'],
-            model=params['model'],
-            temperature=params['temperature'],
-            max_tokens=params['max_tokens'],
-            history=history,
-            ))
-        open(args.thread+'.new', 'w').write(yaml.dump(thread_history))
-        os.rename(args.thread+'.new', args.thread)
 
+    # Save the conversation+parameters if we were given a thread file.
+    if args.thread:
+        save(args.thread)
+
+    # Break if we were evaluating only a single query.
     if args.query:
         break
