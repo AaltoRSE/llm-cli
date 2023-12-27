@@ -19,6 +19,7 @@ params = dict(
     system='You are a helpful assistant.',
     temperature=1,
     stream=True,
+    seed=None,
     )
 
 history = None
@@ -49,7 +50,7 @@ if args.thread:
     if os.path.exists(args.thread):
         thread_history = yaml.safe_load(open(args.thread))
         history = thread_history['history']
-        keys = ['system', 'model', 'temperature', 'max_tokens',
+        keys = ['system', 'model', 'temperature', 'max_tokens', 'seed',
                 'url', 'api_key', 'stream']
         for key in keys:
             if key in thread_history:
@@ -70,6 +71,8 @@ parser.add_argument('--max-tokens', default=params['max_tokens'], type=int,
                     help="Max input tokens to the model (save some for the output).  The config file name of this is max_tokens.")
 parser.add_argument('--replay-history', action='store_true',
                     help='Replay each user prompt back through the model to update assistant prompts')
+parser.add_argument('--seed', type=int, default=params['seed'],
+                    help="Send this seed to the API (if unset, don't send anything")
 parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
                     help="Standard config options")
 parser.add_argument('query', nargs='?')
@@ -123,6 +126,7 @@ def save(fname):
         model=params['model'],
         temperature=params['temperature'],
         max_tokens=params['max_tokens'],
+        seed=params['seed'],
         history=history,
         ))
     open(fname+'.new', 'w').write(yaml.dump(thread_history))
@@ -185,7 +189,8 @@ while True:
             {'role': 'system',
              'content': params['system']
             },
-            ] + history)
+            ] + history),
+        **({'seed': params['seed']} if params['seed'] else {})
         }
 
     # Post it and basic check.
