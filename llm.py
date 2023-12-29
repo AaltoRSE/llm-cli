@@ -23,7 +23,7 @@ params = dict(
     )
 
 history = None
-input_queue = None
+input_queue = deque()
 
 # First parsing
 
@@ -71,20 +71,28 @@ parser.add_argument('--max-tokens', default=params['max_tokens'], type=int,
                     help="Max input tokens to the model (save some for the output).  The config file name of this is max_tokens.")
 parser.add_argument('--replay-history', action='store_true',
                     help='Replay each user prompt back through the model to update assistant prompts')
+parser.add_argument('--no-interact', action='store_true',
+                    help='Exit as soon as automatic input is done')
 parser.add_argument('--seed', type=int, default=params['seed'],
                     help="Send this seed to the API (if unset, don't send anything")
 parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
                     help="Standard config options")
-parser.add_argument('query', nargs='?')
+parser.add_argument('--verbose', '-v', action='store_true',
+                    help="Be more verbose")
+parser.add_argument('query', nargs='*',
+                    help="Add these as queries.  Each query should be quoted and is sent in sequence.  ")
 args = parser.parse_args()
-params.update(vars(args))
 # Replay all inputs of the history back to the model.
 if args.replay_history:
-    input_queue = deque()
     for message in history:
         if message['role'] == 'user':
             input_queue.append(message['content'])
     history = None
+if args.query:
+    for query in args.query:
+        input_queue.append(query)
+    args.no_interact = True
+params.update(vars(args))
 
 
 # Utility functions
@@ -153,15 +161,16 @@ if history is None:
 print(f'System: {params["system"]} [{params["model"]}]')
 while True:
     print()
-    if args.query:
-        data = args.query
-    elif input_queue:
+    if  input_queue:
         data = input_queue.popleft()
         print(f'>> {data}')
+    elif args.no_interact:
+        sys.exit()
     else:
         try:
             data = input('> ')
-            print(repr(data))
+            if args.verbose:
+                print(repr(data))
         except EOFError:
             break
     # No input, do nothing
@@ -192,6 +201,8 @@ while True:
             ] + history),
         **({'seed': params['seed']} if params['seed'] else {})
         }
+    if args.verbose:
+        print(msg)
 
     # Post it and basic check.
     r = sess.post(urljoin(params['url'], 'chat/completions'), json=msg, stream=True)
@@ -253,7 +264,3 @@ while True:
     # Save the conversation+parameters if we were given a thread file.
     if args.thread:
         save(args.thread)
-
-    # Break if we were evaluating only a single query.
-    if args.query:
-        break
