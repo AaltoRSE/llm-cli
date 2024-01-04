@@ -16,9 +16,18 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 
+def user_dir():
+    llm_user_path = os.environ.get("LLM-CLI_USER_PATH")
+    if llm_user_path:
+        path = Path(llm_user_path)
+    else:
+        path = Path(os.path.expanduser("~/.local/llm-cli"))
+    path.mkdir(exist_ok=True, parents=True)
+    return path
+
 # These are all the default parameters
 params = dict(
-    url='',
+    url='https://llm-gateway.k8s-test.cs.aalto.fi/v1/',
     api_key=os.environ.get('OPENAI_API_KEY', '321'),
     model='llama2-13b-chat',
     max_tokens=2048 * 3 // 4,
@@ -27,6 +36,9 @@ params = dict(
     stream=True,
     seed=None,
     )
+
+with open(user_dir()/'config.yml', 'w') as file:
+    yaml.dump(params, file)
 
 history = None
 input_queue = deque()
@@ -40,7 +52,7 @@ input_queue = deque()
 #TODO: Dont replace the default values with the config files -> 404 error
 #TODO: Better error handeling
 parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument('--config', '-c', default='~/.local/llm.yaml')
+parser.add_argument('--config', '-c', default=user_dir()/"config.yaml")
 parser.add_argument('--thread', '-t')
 args, _ = parser.parse_known_args()
 
@@ -55,7 +67,7 @@ if args.config:
 
 # Load saved thread if given
 # thread_history is original file for updating (to
-# not change these parameters if they aren't specified again)
+# not change these parameters if they aren't specmv fied again)
 thread_history = { }
 if args.thread:
     args.thread = os.path.expanduser(args.thread)
@@ -176,7 +188,6 @@ def print_help():
     print(f"Type '\history' to show the current history.")
     print(f"Type '\help' or '\menu' to print this menu again.")
 
-#TODO: How to exit?
 # Main loop of running
 if history is None:
     history = [ ]
