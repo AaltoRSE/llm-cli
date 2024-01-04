@@ -99,7 +99,7 @@ parser.add_argument('--no-interact', action='store_true',
                     help='Exit as soon as automatic input is done')
 parser.add_argument('--seed', type=int, default=params['seed'],
                     help="Send this seed to the API (if unset, don't send anything")
-parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
+parser.add_argument('--config', '-c', default=user_dir()/'llm.yaml',
                     help="Standard config options")
 parser.add_argument('--verbose', '-v', action='store_true',
                     help="Be more verbose")
