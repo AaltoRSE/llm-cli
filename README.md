@@ -29,6 +29,8 @@ is loaded gets saved back to the history file:
 * Loaded from history with `-thread`, `-t`
 * Specified on command line.
 
+The default confing file is saved in `$HOME/.local/llm-cli/config.yaml`. This folder will be used as a cache folder for saving the history of conversations.
+
 Options:
 
 * `--thread`, `-t`: Save state to this YAML file and read from it.  It
