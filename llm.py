@@ -168,7 +168,19 @@ def save(fname):
     open(fname+'.new', 'w').write(yaml.dump(thread_history))
     os.rename(fname+'.new', args.thread)
 
-
+def construct_api_msg(params, history):
+    msg = {
+        'model': params['model'],
+        'temperature': params['temperature'],
+        'stream': params['stream'],
+        'messages': limit_tokens(params['max_tokens'], [
+            {'role': 'system',
+             'content': params['system']
+            },
+            ] + history),
+        **({'seed': params['seed']} if params['seed'] else {})
+        }
+    return msg
 
 sess = requests.Session()
 sess.auth=Auth()
@@ -239,24 +251,15 @@ while True:
     history.append(Message('user', data))
 
     # Construct our API query.
-    msg = {
-        'model': params['model'],
-        'temperature': params['temperature'],
-        'stream': params['stream'],
-        'messages': limit_tokens(params['max_tokens'], [
-            {'role': 'system',
-             'content': params['system']
-            },
-            ] + history),
-        **({'seed': params['seed']} if params['seed'] else {})
-        }
+    msg = construct_api_msg(params, history)
+
     if args.verbose:
         print(msg)
 
     # Post it and basic check.
     r = sess.post(urljoin(params['url'], 'chat/completions'), json=msg, stream=True)
     if r.status_code != 200:
-        logging.warning(f"Connection failed wiht {r.status_code}. {r.reason}. {r.json}.")
+        logging.warning(f"Connection failed with {r.status_code}. {r.reason}. {r.json}.")
         continue
 
     # Non-streamed responses
