@@ -6,9 +6,15 @@ from pathlib import Path
 import readline
 import sys
 from urllib.parse import urljoin
-
+import logging
 import requests
 import yaml
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)-8s %(message)s",
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 # These are all the default parameters
 params = dict(
@@ -30,16 +36,22 @@ input_queue = deque()
 # First we parse only the options that would load other configuration options,
 # and update default parameters (e.g. --config).  Then we will re-parse all
 # arguments like --model which can override the loaded arguments.
+
+#TODO: Dont replace the default values with the config files -> 404 error
+#TODO: Better error handeling
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument('--config', '-c', default='~/.local/llm.yaml')
 parser.add_argument('--thread', '-t')
-args, remaining = parser.parse_known_args()
+args, _ = parser.parse_known_args()
 
 # Config file if given
 if args.config:
+    logging.info(f"Reading the config file from {args.config}")
     args.config = os.path.expanduser(args.config)
     if os.path.exists(args.config):
         params.update(yaml.safe_load(open(args.config)))
+    else:
+        logging.warning(f"No such file or directory!")
 
 # Load saved thread if given
 # thread_history is original file for updating (to
@@ -56,7 +68,8 @@ if args.thread:
             if key in thread_history:
                 params[key] = thread_history[key]
 
-
+#TODO: Better logging and exception handling.
+#TODO: Better config reading and args handeling
 # Second round parsing.  This re-parses --config and --thread from above but
 # doesn't use them anymore.
 parser = argparse.ArgumentParser()
@@ -84,9 +97,11 @@ parser.add_argument('query', nargs='*',
 args = parser.parse_args()
 # Replay all inputs of the history back to the model.
 if args.replay_history:
+    logging.info(f"Replicating the history prompts.")
     for message in history:
         if message['role'] == 'user':
             input_queue.append(message['content'])
+    args.no_interact = True
     history = None
 if args.query:
     for query in args.query:
@@ -106,6 +121,7 @@ def Message(role, content):
     assert role in {'system', 'user', 'assistant'}
     return {'role': role, 'content': content}
 
+#TODO: Better token counter
 def count_tokens(text):
     """Number of tokens in some text"""
     return len(text) // 5
@@ -154,11 +170,18 @@ if args.list_models:
     print(yaml.dump(models))
     exit(1)
 
+def print_help():
+    print(f"Type '\exit' or '\quit' to exit")
+    print(f"Type '\save' to save the current history.")
+    print(f"Type '\history' to show the current history.")
+    print(f"Type '\help' or '\menu' to print this menu again.")
 
+#TODO: How to exit?
 # Main loop of running
 if history is None:
     history = [ ]
 print(f'System: {params["system"]} [{params["model"]}]')
+print_help()
 while True:
     print()
     if  input_queue:
@@ -176,11 +199,22 @@ while True:
     # No input, do nothing
     if not data.strip():
         continue
+
+    if data.strip() in (r'\help', r'\menu'):
+        print_help()
+        continue
+
+    if data.strip() in (r'\exit', r'\quit'):
+        logging.info(f"Ending the chat interface with user command.")
+        break
+
     # Print history for user
     if data == r'\history':
         print(yaml.dump(history))
         continue
+
     # Force a save right now.
+    # TODO: Better thread handeling + add default path
     if data.startswith(r'\save'):
         args.thread = data.split(None, 1)[1].strip()
         save(args.thread)
@@ -207,14 +241,13 @@ while True:
     # Post it and basic check.
     r = sess.post(urljoin(params['url'], 'chat/completions'), json=msg, stream=True)
     if r.status_code != 200:
-        print(r.status_code, r.reason)
-        print(r.json())
+        logging.warning(f"Connection failed wiht {r.status_code}. {r.reason}. {r.json}.")
         continue
 
     # Non-streamed responses
     if not params['stream']:
         rdata = r.json()
-        #print(rdata)
+
         rchoice = rdata['choices'][0]
         print(f"[{r.status_code}: {rdata['usage']['prompt_tokens']}→ {rdata['usage']['completion_tokens']}→ {rchoice['finish_reason']}]")
         message = rchoice['message']['content']
