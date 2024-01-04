@@ -9,6 +9,7 @@ from urllib.parse import urljoin
 import logging
 import requests
 import yaml
+from datetime import datetime
 
 logging.basicConfig(
     format="%(asctime)s %(levelname)-8s %(message)s",
@@ -37,7 +38,7 @@ params = dict(
     seed=None,
     )
 
-with open(user_dir()/'config.yml', 'w') as file:
+with open(user_dir()/'config.yaml', 'w') as file:
     yaml.dump(params, file)
 
 history = None
@@ -74,9 +75,7 @@ if args.thread:
     if os.path.exists(args.thread):
         thread_history = yaml.safe_load(open(args.thread))
         history = thread_history['history']
-        keys = ['system', 'model', 'temperature', 'max_tokens', 'seed',
-                'url', 'api_key', 'stream']
-        for key in keys:
+        for key in params.keys():
             if key in thread_history:
                 params[key] = thread_history[key]
 
@@ -157,6 +156,7 @@ def limit_tokens(max_, messages):
 def save(fname):
     """Save history+parameters to fname
     """
+    fname = str(fname)
     thread_history.update(dict(
         system=params['system'],
         model=params['model'],
@@ -225,9 +225,13 @@ while True:
         continue
 
     # Force a save right now.
-    # TODO: Better thread handeling + add default path
     if data.startswith(r'\save'):
-        args.thread = data.split(None, 1)[1].strip()
+        try:
+            args.thread = data.split(None, 1)[1].strip()
+        except IndexError:
+            current_time = datetime.now().strftime("%Y%M%d_%H_%M_%S")
+            args.thread = user_dir()/f"thread_{current_time}.yaml"
+            logging.info(f"No file specified. Saving to {args.thread}")
         save(args.thread)
         print(f'Saving history (now and future) to {args.thread}')
         continue
@@ -307,4 +311,5 @@ while True:
 
     # Save the conversation+parameters if we were given a thread file.
     if args.thread:
+        logging.info(f"Updating the {args.thread} file.")
         save(args.thread)
