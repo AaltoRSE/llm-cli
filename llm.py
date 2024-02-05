@@ -59,16 +59,20 @@ if args.thread:
 
 # Second round parsing.  This re-parses --config and --thread from above but
 # doesn't use them anymore.
-parser = argparse.ArgumentParser()
+parser = argparse.ArgumentParser(
+    description="Defaults listed below include any settings in the "
+                "config file or loaded history files."
+    )
 parser.add_argument('--list-models', '-l', action='store_true')
 parser.add_argument('--thread', '-t', help="Read/save history&parameters from/to this file (yaml format)")
 parser.add_argument('--system', '-s', default=params['system'],
-                    help="The system prompt")
-parser.add_argument('--model', '-m', default=params['model'])
+                    help="The system prompt (default %(default)s)")
+parser.add_argument('--model', '-m', default=params['model'],
+                    help="Model name to select (default %(default)s)")
 parser.add_argument('--temperature', '-T', type=float, default=params['temperature'],
-                    help="Model temperature")
+                    help="Model temperature (default %(default)s)")
 parser.add_argument('--max-tokens', default=params['max_tokens'], type=int,
-                    help="Max input tokens to the model (save some for the output).  The config file name of this is max_tokens.")
+                    help="Max input tokens to the model (save some for the output).  The config file name of this is max_tokens  (default %(default)s).")
 parser.add_argument('--replay-history', action='store_true',
                     help='Replay each user prompt back through the model to update assistant prompts')
 parser.add_argument('--no-interact', action='store_true',
@@ -76,7 +80,7 @@ parser.add_argument('--no-interact', action='store_true',
 parser.add_argument('--seed', type=int, default=params['seed'],
                     help="Send this seed to the API (if unset, don't send anything")
 parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
-                    help="Standard config options")
+                    help="Standard config options (default %(default)s)")
 parser.add_argument('--verbose', '-v', action='store_true',
                     help="Be more verbose")
 parser.add_argument('query', nargs='*',
