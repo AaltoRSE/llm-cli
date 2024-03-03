@@ -84,6 +84,8 @@ parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
                     help="Standard config options (default %(default)s)")
 parser.add_argument('--verbose', '-v', action='store_true',
                     help="Be more verbose")
+parser.add_argument('--search',
+                    help="Search this and add to context window")
 parser.add_argument('query', nargs='*',
                     help="Add these as queries.  Each query should be quoted and is sent in sequence.  ")
 args = parser.parse_args()
@@ -145,6 +147,27 @@ def save(fname):
     open(fname+'.new', 'w').write(yaml.dump(thread_history))
     os.rename(fname+'.new', args.thread)
 
+
+if args.search:
+    import search
+    import sqlite3
+    conn = sqlite3.connect('/u/04/darstr1/unix/git/scicomp-docs/search.db')
+    def dict_factory(cur, row):
+        """sqlite3 helper to return dicts of each row.  Used in connection initialization"""
+        fields = [col[0] for col in cur.description]
+        return {key: value for key, value in zip(fields, row)}
+    conn.row_factory = dict_factory
+
+    results = [ ]
+    for result in search.search(conn, args.search, limit=5):
+        body = result['body'].replace('\n', ' ').strip()
+        results.append(f"""From {result['path']}, you know: {body}.""")
+    results = "\n\n".join(results)
+    params['system'] = f"""\
+You are a helpful assistant.  You have the following information which you can use as part of your answers. Try to answer as correctly as possible.  If the information you need isn't in here, you should say that the search should be clarified rather than make things up.  You should include a link to where the information can be found, each piece of information includes its link and the text:
+
+{results}
+"""
 
 
 sess = requests.Session()
