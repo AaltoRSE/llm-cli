@@ -85,7 +85,9 @@ parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
 parser.add_argument('--verbose', '-v', action='store_true',
                     help="Be more verbose")
 parser.add_argument('--search',
-                    help="Search this and add to context window")
+                    help="Search this and add to context window. (default is no search)")
+parser.add_argument('--search-module', default='__main__.search_scicomp_docs',
+                    help="Module to use for searching (default %(default)s)")
 parser.add_argument('query', nargs='*',
                     help="Add these as queries.  Each query should be quoted and is sent in sequence.  ")
 args = parser.parse_args()
@@ -148,26 +150,67 @@ def save(fname):
     os.rename(fname+'.new', args.thread)
 
 
-if args.search:
-    import search
-    import sqlite3
-    conn = sqlite3.connect('/u/04/darstr1/unix/git/scicomp-docs/search.db')
-    def dict_factory(cur, row):
-        """sqlite3 helper to return dicts of each row.  Used in connection initialization"""
-        fields = [col[0] for col in cur.description]
-        return {key: value for key, value in zip(fields, row)}
-    conn.row_factory = dict_factory
 
+def search_scicomp_docs(query, snipets=False, limit=5, **kwargs):
+    """Example search function.
+
+    Arguments: one, the query.  Can accept other argumest, and should
+    accept arbitrary arguments via **kwargs in case other arguments are
+    added later.
+
+    Returns: iterator over dicts that should have at least these keys:
+       ref: link or reference to the respective information
+       text: Plain text or markdown information.
+    """
+    r = requests.get('https://scicomp-docs-search.k8s-test.cs.aalto.fi/', params={'q': query})
+    for result in r.json():
+        text = result['body'].strip()
+        yield {'ref': result['path'], 'text': text}
+
+
+
+# Retrieval-augmented generation via --search and --search-module
+if args.search:
+    # Process the search module argument.  This is the function that lets us
+    # retrieve data.
+    # Format of search_mod:  module.function:arg1=value1,arg2=value2
+    # See search_scicomp_docs above for an example of this function.
+    search_mod = args.search_module
+    # Get arguments if there are any
+    if ':' in search_mod:
+        search_mod, search_args = search_mod.split(':', 1)
+        search_args = { arg.split('=',1)[0]: arg.split('=',1)[1] for arg in search_args.split(',') }
+    else:
+        search_args = { }
+    # Split the module into the module and function name.  Import the function
+    # as search_func.
+    search_mod, search_func = search_mod.rsplit('.', 1)
+    search_mod = __import__(search_mod, globals(), locals(), [search_func], 0)
+    search_func = getattr(search_mod, search_func)
+
+    # Search and go through each result and add it to a results list.
+    # Format it to include the reference and text body.
     results = [ ]
-    for result in search.search(conn, args.search, limit=5):
-        body = result['body'].replace('\n', ' ').strip()
-        results.append(f"""From {result['path']}, you know: {body}.""")
-    results = "\n\n".join(results)
+    results_chars = 0
+    for result in search_func(query=args.search, **search_args):
+        results.append(f"""From the reference {result['ref']} you have:\n{result['text'].strip()}""")
+        results_chars += len(results[-1])
+        # Limit the maximum number of searchable characters if specified.
+        if 'max_chars' in search_args and results_chars > int(search_args['max_chars']):
+            break
+    results = "\n\n---\n\n".join(results)
+
+    # Join everything together to the actual system prompt.  First, use the
+    # main system prompt, then instructions to use the processed data, then the
+    # results from the search query.
     params['system'] = f"""\
-You are a helpful assistant.  You have the following information which you can use as part of your answers. Try to answer as correctly as possible.  If the information you need isn't in here, you should say that the search should be clarified rather than make things up.  You should include a link to where the information can be found, each piece of information includes its link and the text:
+{params['system']}  You have the following information which you can use as part of your answers. Try to answer as correctly as possible.  If the information you need isn't in here, you should say that the search should be clarified rather than make things up.  A reference is given first, and then the information, you should include that reference when giving an answer.  The information follows:
+
+---
 
 {results}
 """
+
 
 
 sess = requests.Session()
