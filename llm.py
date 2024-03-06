@@ -85,7 +85,7 @@ parser.add_argument('--config', '-c', default='~/.local/llm.yaml',
 parser.add_argument('--verbose', '-v', action='store_true',
                     help="Be more verbose")
 parser.add_argument('--search',
-                    help="Search this and add to context window. (default is no search)")
+                    help="Search this and add to context window.  Argument can be @filename to load. (default is no search)")
 parser.add_argument('--search-module', default='__main__.search_scicomp_docs',
                     help="Module to use for searching (default %(default)s)")
 parser.add_argument('query', nargs='*',
@@ -188,11 +188,18 @@ if args.search:
     search_mod = __import__(search_mod, globals(), locals(), [search_func], 0)
     search_func = getattr(search_mod, search_func)
 
+    query = args.search
+    if query.startswith('@'):
+        from langchain_community.document_loaders import UnstructuredFileLoader
+        query = UnstructuredFileLoader(query[1:]).load()[0].page_content
+
+
+
     # Search and go through each result and add it to a results list.
     # Format it to include the reference and text body.
     results = [ ]
     results_chars = 0
-    for result in search_func(query=args.search, **search_args):
+    for result in search_func(query=query, **search_args):
         results.append(f"""From the reference {result['ref']} you have:\n{result['text'].strip()}""")
         results_chars += len(results[-1])
         # Limit the maximum number of searchable characters if specified.
