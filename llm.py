@@ -169,6 +169,25 @@ def search_scicomp_docs(query, snipets=False, limit=5, **kwargs):
 
 
 
+def search_chroma(query, db=None, limit=5, **kwargs):
+    """Search function for a Chroma database.
+
+    This still isn't general and has some hard-codings.
+    """
+    from langchain_community.vectorstores import Chroma
+    from langchain_community.embeddings.sentence_transformer import (
+        SentenceTransformerEmbeddings,
+    )
+    embedding_function = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+    db = Chroma(persist_directory=db, embedding_function=embedding_function)
+    docs = db.similarity_search(query, k=int(limit))
+    #print(docs[0].page_content)
+    #print(docs[0].metadata)
+    for doc in docs:
+        yield {'ref': doc.metadata.get('source', '-'), 'text': doc.page_content}
+
+
+
 # Retrieval-augmented generation via --search and --search-module
 if args.search:
     # Process the search module argument.  This is the function that lets us
