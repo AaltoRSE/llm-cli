@@ -32,7 +32,7 @@ input_queue = deque()
 # and update default parameters (e.g. --config).  Then we will re-parse all
 # arguments like --model which can override the loaded arguments.
 parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument('--config', '-c', default='~/.local/llm.yaml')
+parser.add_argument('--config', '-c', default='~/.config/llm-cli.yaml')
 parser.add_argument('--thread', '-t')
 args, remaining = parser.parse_known_args()
 
